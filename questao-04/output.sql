@@ -1,0 +1,2 @@
+-- Output gerado pelo modelo para a Questão 04
+-- Cole aqui o SQL gerado
