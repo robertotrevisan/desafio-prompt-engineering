@@ -1,2 +1,138 @@
+# ==============================================================================
 # Output gerado pelo modelo para a Questão 05
-# Cole aqui o YAML gerado
+# Modelo: claude-sonnet-4-6  |  Data: 2026-06-13
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Deployment modernizado
+# ------------------------------------------------------------------------------
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronos-api
+  namespace: production
+  labels:
+    app: chronos-api
+    version: "1.0.0"
+    component: api-gateway
+    managed-by: platform-team
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: chronos-api
+  template:
+    metadata:
+      labels:
+        app: chronos-api
+        version: "1.0.0"
+        component: api-gateway
+        managed-by: platform-team
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: api
+        image: chronos-api:1.0.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: chronos-secrets
+              key: DB_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: chronos-secrets
+              key: JWT_SECRET
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+
+---
+# ------------------------------------------------------------------------------
+# 2. Secret chronos-secrets (valores placeholder — substituir antes do apply)
+# ------------------------------------------------------------------------------
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chronos-secrets
+  namespace: production
+type: Opaque
+data:
+  DB_PASSWORD: REPLACE_WITH_BASE64_ENCODED_VALUE
+  JWT_SECRET: REPLACE_WITH_BASE64_ENCODED_VALUE
+
+# Para gerar os valores Base64:
+#   echo -n 'sua-senha-aqui' | base64
+# Nunca commitar o Secret com valores reais — usar Sealed Secrets, AWS Secrets
+# Manager com External Secrets Operator, ou equivalente.
+
+# ==============================================================================
+# 3. Tabela diff: Before → After
+# ==============================================================================
+#
+# Problema (Before)                        | Solução (After)
+# -----------------------------------------|------------------------------------------
+# Segredos hardcoded em texto puro         | secretKeyRef referenciando chronos-secrets;
+# (DB_PASSWORD, JWT_SECRET como value: "…")| nenhum valor sensível no manifest
+# -----------------------------------------|------------------------------------------
+# Imagem :latest não rastreável            | chronos-api:1.0.0 — versão semântica fixa;
+#                                          | build reproduzível e rollback possível
+# -----------------------------------------|------------------------------------------
+# Sem resource requests/limits             | requests: cpu 250m / mem 256Mi
+#                                          | limits: cpu 500m / mem 512Mi
+#                                          | Evita noisy neighbor e OOMKill
+# -----------------------------------------|------------------------------------------
+# Sem liveness/readiness probes            | readinessProbe: GET /health (delay 10s, p5s)
+#                                          | livenessProbe:  GET /health (delay 30s, p10s)
+#                                          | K8s remove pod do LB e reinicia se necessário
+# -----------------------------------------|------------------------------------------
+# Sem securityContext (roda como root)     | Container: runAsNonRoot, runAsUser 1000,
+#                                          | readOnlyRootFilesystem, no privilege escalation
+#                                          | Pod: runAsNonRoot, seccompProfile RuntimeDefault
+# -----------------------------------------|------------------------------------------
+# replicas: 1 — sem HA                     | replicas: 3 — pods distribuídos entre nós;
+#                                          | tolerante a falha de 1 pod sem downtime
+# -----------------------------------------|------------------------------------------
+# Sem RollingUpdate configurado            | maxUnavailable: 0, maxSurge: 1
+#                                          | Zero-downtime deploy: sobe novo antes de
+#                                          | derrubar o antigo
+# -----------------------------------------|------------------------------------------
+# Labels mínimas — Beacon não identifica   | Labels adicionados: version, component,
+# o serviço para scraping                  | managed-by — compatíveis com label selectors
+#                                          | do Prometheus/Beacon
